@@ -29,17 +29,24 @@ Item {
 
     property bool showKeyboard: !Config.virtualKeyboardStartHidden
 
+    property bool foundUsers: userModel.count > 0
+
     // Login info
     property int sessionIndex: 0
     property int userIndex: 0
     property string userName: ""
     property string userRealName: ""
     property string userIcon: ""
-    property bool userNeedsPassword: false
+    property bool userNeedsPassword: true
 
     function login() {
-        safeStateChange("authenticating");
-        sddm.login(userName, password.text, sessionIndex);
+        var user = foundUsers ? userName : userInput.text;
+        if (user && user !== "") {
+            safeStateChange("authenticating");
+            sddm.login(user, password.text, sessionIndex);
+        } else {
+            loginMessage.warn(textConstants.promptUser || "Enter your user!", "error");
+        }
     }
     Connections {
         function onLoginSucceeded() {
@@ -72,10 +79,14 @@ Item {
     }
 
     function resetFocus() {
-        if (loginScreen.userNeedsPassword) {
-            password.input.forceActiveFocus();
+        if (!loginScreen.foundUsers) {
+            userInput.input.forceActiveFocus();
         } else {
-            loginButton.forceActiveFocus();
+            if (loginScreen.userNeedsPassword) {
+                password.input.forceActiveFocus();
+            } else {
+                loginButton.forceActiveFocus();
+            }
         }
     }
 
@@ -119,12 +130,75 @@ Item {
                     anchors.topMargin = Config.loginAreaMargin;
                 }
             }
+
+            if (!loginScreen.foundUsers) {
+                userSelector.visible = false;
+                noUsersLoginArea.visible = true;
+            }
+        }
+
+        Item {
+            id: noUsersLoginArea
+            width: Config.passwordInputWidth * Config.generalScale + (loginButton.visible ? Config.passwordInputHeight * Config.generalScale + Config.loginButtonMarginLeft : 0)
+            height: childrenRect.height
+            visible: false
+
+            Text {
+                id: noUsersMessage
+                anchors {
+                    top: parent.top
+                }
+                width: parent.width
+                text: "SDDM could not find any user. Type your username below:"
+                wrapMode: Text.Wrap
+                horizontalAlignment: {
+                    if (Config.loginAreaPosition === "left") {
+                        horizontalAlignment: Text.AlignLeft;
+                    } else if (Config.loginAreaPosition === "right") {
+                        horizontalAlignment: Text.AlignRight;
+                    } else {
+                        horizontalAlignment: Text.AlignHCenter;
+                    }
+                }
+                color: Config.warningMessageErrorColor
+                font.pixelSize: Math.max(8, Config.passwordInputFontSize * Config.generalScale)
+                font.family: Config.passwordInputFontFamily
+            }
+
+            Input {
+                id: userInput
+                anchors {
+                    top: noUsersMessage.bottom
+                    topMargin: Config.usernameMargin
+                }
+                width: parent.width
+                icon: Config.getIcon("user-default")
+                placeholder: (textConstants && textConstants.userName) ? textConstants.userName : "Password"
+                isPassword: false
+                splitBorderRadius: false
+                enabled: loginScreen.state !== "authenticating"
+                onAccepted: {
+                    loginScreen.login();
+                }
+            }
+
+            Component.onCompleted: {
+                anchors.bottom = loginLayout.top;
+                if (Config.loginAreaPosition === "left") {
+                    anchors.left = parent.left;
+                } else if (Config.loginAreaPosition === "right") {
+                    anchors.right = parent.right;
+                } else {
+                    anchors.horizontalCenter = parent.horizontalCenter;
+                }
+            }
         }
 
         UserSelector {
             id: userSelector
             listUsers: loginScreen.state === "selectingUser"
             enabled: loginScreen.state !== "authenticating"
+            visible: true
             activeFocusOnTab: true
             orientation: Config.loginAreaPosition === "left" || Config.loginAreaPosition === "right" ? "vertical" : "horizontal"
             width: orientation === "horizontal" ? loginScreen.width - Config.loginAreaMargin * 2 : (Config.avatarActiveSize * Config.generalScale)
@@ -137,11 +211,13 @@ Item {
                 loginScreen.resetFocus(); // resetFocus with escape even if the selector is not open
             }
             onUserChanged: (index, name, realName, icon, needsPassword) => {
-                loginScreen.userIndex = index;
-                loginScreen.userName = name;
-                loginScreen.userRealName = realName;
-                loginScreen.userIcon = icon;
-                loginScreen.userNeedsPassword = needsPassword;
+                if (loginScreen.foundUsers) {
+                    loginScreen.userIndex = index;
+                    loginScreen.userName = name;
+                    loginScreen.userRealName = realName;
+                    loginScreen.userIcon = icon;
+                    loginScreen.userNeedsPassword = needsPassword;
+                }
             }
 
             Component.onCompleted: {
@@ -163,12 +239,20 @@ Item {
             Component.onCompleted: {
                 if (Config.loginAreaPosition === "left") {
                     anchors.verticalCenter = parent.verticalCenter;
-                    anchors.left = userSelector.right;
-                    anchors.leftMargin = Config.usernameMargin;
+                    if (userSelector.visible) {
+                        anchors.left = userSelector.right;
+                        anchors.leftMargin = Config.usernameMargin;
+                    } else {
+                        anchors.left = parent.left;
+                    }
                 } else if (Config.loginAreaPosition === "right") {
                     anchors.verticalCenter = parent.verticalCenter;
-                    anchors.right = userSelector.left;
-                    anchors.rightMargin = Config.usernameMargin;
+                    if (userSelector.visible) {
+                        anchors.right = userSelector.left;
+                        anchors.rightMargin = Config.usernameMargin;
+                    } else {
+                        anchors.right = parent.right;
+                    }
                 } else {
                     anchors.top = userSelector.bottom;
                     anchors.topMargin = Config.usernameMargin;
@@ -183,6 +267,7 @@ Item {
                 font.pixelSize: Config.usernameFontSize * Config.generalScale
                 color: Config.usernameColor
                 text: loginScreen.userRealName || loginScreen.userName || ""
+                visible: loginScreen.foundUsers
 
                 Component.onCompleted: {
                     anchors.top = parent.top;
@@ -214,11 +299,15 @@ Item {
                     }
                 }
 
-                PasswordInput {
+                Input {
                     id: password
                     Layout.alignment: Qt.AlignHCenter
-                    enabled: loginScreen.state !== "selectingUser" && loginScreen.state !== "authenticating" && loginScreen.state === "normal"
-                    visible: loginScreen.userNeedsPassword
+                    enabled: loginScreen.state === "normal"
+                    visible: loginScreen.userNeedsPassword || !loginScreen.foundUsers
+                    icon: Config.getIcon(Config.passwordInputIcon)
+                    placeholder: (textConstants && textConstants.password) ? textConstants.password : "Password"
+                    isPassword: true
+                    splitBorderRadius: true
                     onAccepted: {
                         loginScreen.login();
                     }
@@ -233,7 +322,7 @@ Item {
                     enabled: loginScreen.state !== "selectingUser" && loginScreen.state !== "authenticating"
                     activeFocusOnTab: true
                     icon: Config.getIcon(Config.loginButtonIcon)
-                    label: textConstants.login ? textConstants.login.toUpperCase() : "LOGIN"
+                    label: textConstants.login ? textConstants.login : "Login"
                     showLabel: Config.loginButtonShowTextIfNoPassword && !loginScreen.userNeedsPassword
                     tooltipText: !Config.tooltipsDisableLoginButton && (!Config.loginButtonShowTextIfNoPassword || loginScreen.userNeedsPassword) ? (textConstants.login || "Login") : ""
                     iconSize: Config.loginButtonIconSize

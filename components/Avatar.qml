@@ -21,6 +21,15 @@ Rectangle {
     color: "transparent"
     antialiasing: true
 
+    // Background
+    Rectangle {
+        anchors.fill: parent
+        radius: avatar.squareRadius
+        color: Config.passwordInputBackgroundColor
+        opacity: Config.passwordInputBackgroundOpacity
+        visible: true
+    }
+
     Image {
         id: faceImage
         source: parent.source
@@ -30,11 +39,18 @@ Rectangle {
         visible: false
         smooth: true
 
-        // FIX: Visual bug with the avatar – if the user uploads an image that is too large, the avatar appears distorted. The code below fixes this and works similarly to the CSS property `object-fit: cover;`.
         fillMode: Image.PreserveAspectCrop
         horizontalAlignment: Image.AlignHCenter
         verticalAlignment: Image.AlignVCenter
 
+        onStatusChanged: {
+            if (status === Image.Error) {
+                source = Config.getIcon("user-default");
+                faceEffects.colorization = 1;
+            }
+        }
+
+        // Border
         Rectangle {
             anchors.fill: parent
             radius: avatar.squareRadius
@@ -44,16 +60,18 @@ Rectangle {
             antialiasing: true
         }
     }
-
     MultiEffect {
+        id: faceEffects
         anchors.fill: faceImage
+        source: faceImage
         antialiasing: true
         maskEnabled: true
         maskSource: faceImageMask
         maskSpreadAtMin: 1.0
         maskThresholdMax: 1.0
         maskThresholdMin: 0.5
-        source: faceImage
+        colorization: 0
+        colorizationColor: avatar.strokeColor === Config.passwordInputBackgroundColor && (1.0 - Config.passwordInputBackgroundOpacity < 0.3) ? Config.passwordInputContentColor : avatar.strokeColor
     }
 
     Item {
